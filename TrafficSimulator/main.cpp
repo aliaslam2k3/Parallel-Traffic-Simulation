@@ -1,15 +1,7 @@
 /**
  * main.cpp
- * Parallel Traffic Simulation Engine
- *
- * Serial build:
- *   g++ -std=c++17 -O2 -o sim main.cpp Vehicle.cpp TrafficLight.cpp \
- *       Simulation.cpp Renderer.cpp -lsfml-graphics -lsfml-window -lsfml-system
- *
- * OpenMP build:
- *   g++ -std=c++17 -O2 -DUSE_OPENMP -fopenmp -o sim main.cpp Vehicle.cpp \
- *       TrafficLight.cpp Simulation.cpp Renderer.cpp \
- *       -lsfml-graphics -lsfml-window -lsfml-system -fopenmp
+ * Step 1: City road map with roads, buildings, parks, traffic lights.
+ * No vehicles.
  */
 
 #include "Simulation.h"
@@ -24,32 +16,26 @@
 
 using namespace TrafficSim;
 
-constexpr int   VEHICLE_COUNT = 500;   // 500 vehicles on 8x8 = 64 intersections
-constexpr float SIM_DT        = 0.12f; // simulation time-step per frame
+constexpr int VEHICLE_COUNT = 0;   // Step 1: no vehicles
+constexpr float SIM_DT     = 0.1f;
 
 int main() {
     std::cout << "========================================\n";
-    std::cout << "  Parallel Traffic Simulation Engine\n";
+    std::cout << "  City Road Map  |  Step 1\n";
+    std::cout << "  (Map + Traffic Lights, no vehicles)\n";
     std::cout << "========================================\n";
-#ifdef USE_OPENMP
-    std::cout << "Mode    : OpenMP PARALLEL\n";
-    std::cout << "Threads : " << omp_get_max_threads() << "\n";
-#else
-    std::cout << "Mode    : SERIAL\n";
-#endif
-    std::cout << "Grid    : " << GRID_WIDTH << " x " << GRID_HEIGHT
-              << "  (" << GRID_WIDTH / INTERSECTION_SPACING
-              << " x " << GRID_HEIGHT / INTERSECTION_SPACING
-              << " intersections)\n";
-    std::cout << "Vehicles: " << VEHICLE_COUNT << "\n";
+    std::cout << "Grid    : " << GRID_WIDTH << " x " << GRID_HEIGHT << "\n";
+    std::cout << "Roads   : " << (GRID_WIDTH / INTERSECTION_SPACING)
+              << " x " << (GRID_HEIGHT / INTERSECTION_SPACING)
+              << " intersections (highways, arterials, local)\n";
+    std::cout << "Features: U-turn bays, medians, varied blocks\n";
     std::cout << "----------------------------------------\n";
 
     Simulation simulation;
     simulation.initialize(VEHICLE_COUNT);
 
-    // 960x960 window = 12 px/cell, road strips = 36 px wide
-    Renderer renderer(960, 960);
-    if (!renderer.initialize()) {
+    Renderer renderer(1200, 1200);
+    if (!renderer.initialize(false)) {  // false = windowed
         std::cerr << "ERROR: Could not open render window.\n";
         return 1;
     }
@@ -59,48 +45,33 @@ int main() {
     auto tStart    = std::chrono::high_resolution_clock::now();
     auto tLastStat = tStart;
 
-    std::cout << "Simulation running  (close window to exit)\n";
+    std::cout << "Close window to exit.\n";
 
     while (running && renderer.isOpen()) {
-        // --- Event handling ---
         while (auto ev = renderer.pollEvent()) {
             if (ev->is<sf::Event::Closed>()) running = false;
         }
 
-        // --- Simulation step (timed) ---
-        auto tStep0 = std::chrono::high_resolution_clock::now();
         simulation.updateVehicles(SIM_DT);
         simulation.updateTrafficLights(SIM_DT);
         simulation.detectCollisions();
-        auto stepUs = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() - tStep0).count();
 
-        // --- Render ---
         renderer.clear();
         renderer.render(simulation);
         renderer.display();
         ++frames;
 
-        // --- Console stats every 2 s ---
         auto now  = std::chrono::high_resolution_clock::now();
         long msEl = std::chrono::duration_cast<std::chrono::milliseconds>(now - tLastStat).count();
         if (msEl >= 2000) {
             long totalMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - tStart).count();
-            double fps = frames * 1000.0 / totalMs;
+            double fps = (totalMs > 0) ? frames * 1000.0 / totalMs : 0.0;
             std::cout << "Frames: " << std::setw(6) << frames
-                      << "  |  Avg FPS: " << std::fixed << std::setprecision(1) << fps
-                      << "  |  Step: "   << stepUs << " us\n";
+                      << "  |  FPS: " << std::fixed << std::setprecision(1) << fps << "\n";
             tLastStat = now;
         }
     }
 
-    // --- Final report ---
-    auto totalMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::high_resolution_clock::now() - tStart).count();
-    std::cout << "----------------------------------------\n";
-    std::cout << "Done.  Frames: " << frames
-              << "  Runtime: " << totalMs << " ms"
-              << "  Avg FPS: " << std::fixed << std::setprecision(1)
-              << (totalMs > 0 ? frames * 1000.0 / totalMs : 0.0) << "\n";
+    std::cout << "Done.  Frames: " << frames << "\n";
     return 0;
 }
