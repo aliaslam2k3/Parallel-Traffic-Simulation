@@ -26,8 +26,10 @@ openmp: CXXFLAGS += -DUSE_OPENMP -fopenmp
 openmp: LDFLAGS += -fopenmp
 openmp: TrafficSimulator_openmp
 
-# Source files
-SOURCES = main.cpp Vehicle.cpp TrafficLight.cpp Simulation.cpp Renderer.cpp
+# Source files (DomainDecomposition used by Simulation for MPI spawn helpers)
+SOURCES = main.cpp Vehicle.cpp TrafficLight.cpp Simulation.cpp Renderer.cpp DomainDecomposition.cpp
+
+SOURCES_MPI = mpi_main.cpp Vehicle.cpp TrafficLight.cpp Simulation.cpp Renderer.cpp DomainDecomposition.cpp
 
 # Serial executable
 TrafficSimulator_serial: $(SOURCES)
@@ -37,12 +39,18 @@ TrafficSimulator_serial: $(SOURCES)
 TrafficSimulator_openmp: $(SOURCES)
 	$(CXX) $(CXXFLAGS) -o $@ $(SOURCES) $(LDFLAGS)
 
+# MPI + spatial decomposition (requires mpic++ / Open MPI or MPICH in PATH)
+mpi: TrafficSimulator_mpi
+
+TrafficSimulator_mpi: $(SOURCES_MPI)
+	mpic++ $(CXXFLAGS) -DUSE_MPI -o $@ $(SOURCES_MPI) $(LDFLAGS)
+
 # Build both
 both: serial openmp
 	@echo "Built both serial and OpenMP versions."
 
 clean:
-	rm -f TrafficSimulator_serial TrafficSimulator_openmp
+	rm -f TrafficSimulator_serial TrafficSimulator_openmp TrafficSimulator_mpi
 	@echo "Cleaned build artifacts."
 
-.PHONY: all serial openmp both clean
+.PHONY: all serial openmp mpi both clean

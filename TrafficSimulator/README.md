@@ -16,9 +16,11 @@ A C++ traffic simulation that models thousands of vehicles moving on a 2D city g
 ```
 TrafficSimulator/
 ├── main.cpp           # Entry point, simulation loop
+├── mpi_main.cpp       # MPI entry: spatial decomposition + rank-0 rendering
 ├── Vehicle.h/cpp      # Vehicle class
 ├── TrafficLight.h/cpp # Traffic light class
 ├── Simulation.h/cpp   # Simulation engine (grid, updates, collisions)
+├── DomainDecomposition.h/cpp  # y-strip ownership for MPI
 ├── Renderer.h/cpp     # SFML visualization
 ├── Makefile           # Build with make
 ├── build.sh           # Linux/macOS build script
@@ -71,6 +73,9 @@ make openmp
 # Both versions
 make both
 
+# MPI spatial decomposition (requires mpic++ / Open MPI or MPICH)
+make mpi
+
 # Clean
 make clean
 ```
@@ -93,16 +98,24 @@ build.bat
 **Serial version:**
 ```bash
 g++ -std=c++17 -Wall -O2 -o TrafficSimulator_serial \
-    main.cpp Vehicle.cpp TrafficLight.cpp Simulation.cpp Renderer.cpp \
+    main.cpp Vehicle.cpp TrafficLight.cpp Simulation.cpp Renderer.cpp DomainDecomposition.cpp \
     -lsfml-graphics -lsfml-window -lsfml-system
 ```
 
 **OpenMP version:**
 ```bash
 g++ -std=c++17 -Wall -O2 -DUSE_OPENMP -fopenmp -o TrafficSimulator_openmp \
-    main.cpp Vehicle.cpp TrafficLight.cpp Simulation.cpp Renderer.cpp \
+    main.cpp Vehicle.cpp TrafficLight.cpp Simulation.cpp Renderer.cpp DomainDecomposition.cpp \
     -lsfml-graphics -lsfml-window -lsfml-system -fopenmp
 ```
+
+**MPI version** (Linux/macOS; requires `mpic++` and MPI development packages):
+```bash
+cd TrafficSimulator
+make mpi
+mpirun -np 4 ./TrafficSimulator_mpi
+```
+On Windows, install [MS-MPI](https://www.microsoft.com/en-us/download/details.aspx?id=105289) and a MinGW-compatible `mpic++` wrapper, or build under WSL using the same `make mpi` command.
 
 ### Windows with custom SFML path
 
@@ -110,7 +123,7 @@ If SFML is installed in a custom location (e.g., `C:\SFML`):
 
 ```cmd
 g++ -std=c++17 -O2 -IC:\SFML\include -LC:\SFML\lib -o TrafficSimulator_serial ^
-    main.cpp Vehicle.cpp TrafficLight.cpp Simulation.cpp Renderer.cpp ^
+    main.cpp Vehicle.cpp TrafficLight.cpp Simulation.cpp Renderer.cpp DomainDecomposition.cpp ^
     -lsfml-graphics -lsfml-window -lsfml-system
 ```
 
@@ -122,9 +135,32 @@ g++ -std=c++17 -O2 -IC:\SFML\include -LC:\SFML\lib -o TrafficSimulator_serial ^
 
 # OpenMP (uses all available cores)
 ./TrafficSimulator_openmp
+
+# MPI: one process must be rank 0 (opens the window); use 2+ ranks for migration
+mpirun -np 4 ./TrafficSimulator_mpi
 ```
 
 Close the window to exit. Statistics (FPS, step time) are printed to the console every 2 seconds.
+
+## OpenMP vs MPI (for presentations)
+
+**OpenMP (implemented in this repo)**
+
+- **Where:** Only [`Simulation.cpp`](Simulation.cpp) inside `Simulation::updateVehicles`, guarded by `#ifdef USE_OPENMP`.
+- **What runs in parallel:** A single `#pragma omp parallel for schedule(dynamic, 32)` over **vehicle index** `0 .. N-1`. Each iteration updates **one** vehicle for the current frame.
+- **What stays serial:** `updateTrafficLights`, `detectCollisions`, and the main loop in `main.cpp` — no OpenMP there.
+- **Memory model:** One OS process; all threads share `m_vehicles` and `m_trafficLights` (shared memory).
+- **Role:** Speed up the **per-vehicle physics/update** step on **multiple CPU cores of one machine** when `N` is large.
+
+**MPI (optional `TrafficSimulator_mpi` build)**
+
+- **Where:** [`mpi_main.cpp`](mpi_main.cpp) + [`DomainDecomposition.cpp`](DomainDecomposition.cpp).
+- **What it does:** **Spatial decomposition** along **y** (horizontal strips). Each MPI **rank** owns vehicles whose `y` lies in its strip `[yMin, yMax)`. When a vehicle’s position leaves that strip after an update, it is **serialized** and **sent** to the rank that owns the new region (`MPI_Send` / `MPI_Recv`).
+- **Traffic lights:** Rank **0** advances phases; state and timers are **`MPI_Bcast`** so all ranks see identical signals for red-light logic.
+- **Rendering:** Only **rank 0** opens the SFML window; vehicle positions are **gathered** for drawing. With **2+ ranks**, **cyan horizontal lines** show **MPI region boundaries** (equal **y** strips: rank `r` owns grid `y` in `[r·H/N, (r+1)·H/N)` in grid units, same map as serial).
+- **Role:** Distribute the simulation across **processes** (e.g. cluster nodes) so work is partitioned by **space** (region ownership + boundary migration), not only by parallelizing a loop on one node.
+
+**Why both:** OpenMP = **threads** within one rank (shared memory). MPI = **processes** across ranks (distributed memory) with **explicit messages** when vehicles cross region boundaries.
 
 ## Simulation Loop
 
@@ -146,7 +182,6 @@ Edit constants in `Simulation.h`:
 
 ## Future Extensions
 
-- **MPI**: Distributed simulation across multiple nodes
 - **GPU (CUDA/OpenCL)**: Massively parallel vehicle updates
 - **Advanced traffic**: Lanes, turning, pathfinding
 

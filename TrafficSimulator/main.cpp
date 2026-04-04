@@ -1,67 +1,71 @@
 /**
  * main.cpp
- * Step 1: City road map with roads, buildings, parks, traffic lights.
- * No vehicles.
+ * Traffic simulation with variable delta time, input for camera, enhanced renderer.
  */
 
 #include "Simulation.h"
 #include "Renderer.h"
-#include <iostream>
-#include <iomanip>
+#include <algorithm>
 #include <chrono>
-
-#ifdef USE_OPENMP
-#include <omp.h>
-#endif
+#include <iomanip>
+#include <iostream>
 
 using namespace TrafficSim;
 
-constexpr int VEHICLE_COUNT = 0;   // Step 1: no vehicles
-constexpr float SIM_DT     = 0.1f;
+constexpr int VEHICLE_COUNT = 120;
 
 int main() {
     std::cout << "========================================\n";
-    std::cout << "  City Road Map  |  Step 1\n";
-    std::cout << "  (Map + Traffic Lights, no vehicles)\n";
+    std::cout << "  Traffic simulation (enhanced visuals)\n";
     std::cout << "========================================\n";
-    std::cout << "Grid    : " << GRID_WIDTH << " x " << GRID_HEIGHT << "\n";
-    std::cout << "Roads   : " << (GRID_WIDTH / INTERSECTION_SPACING)
-              << " x " << (GRID_HEIGHT / INTERSECTION_SPACING)
-              << " intersections (highways, arterials, local)\n";
-    std::cout << "Features: U-turn bays, medians, varied blocks\n";
+    std::cout << "Grid: " << GRID_WIDTH << " x " << GRID_HEIGHT << "\n";
+    std::cout << "Controls: WASD / arrows = pan, +/- / wheel = zoom, Home = reset view\n";
     std::cout << "----------------------------------------\n";
 
     Simulation simulation;
     simulation.initialize(VEHICLE_COUNT);
 
-    Renderer renderer(1200, 1200);
-    if (!renderer.initialize(false)) {  // false = windowed
+    Renderer renderer(1200, 720);
+    if (!renderer.initialize(false)) {
         std::cerr << "ERROR: Could not open render window.\n";
         return 1;
     }
 
-    bool running   = true;
-    int  frames    = 0;
-    auto tStart    = std::chrono::high_resolution_clock::now();
+    bool running = true;
+    int  frames  = 0;
+    auto tStart = std::chrono::high_resolution_clock::now();
     auto tLastStat = tStart;
+    auto tLastFrame = tStart;
+    float fpsDisplay = 60.f;
 
     std::cout << "Close window to exit.\n";
 
     while (running && renderer.isOpen()) {
         while (auto ev = renderer.pollEvent()) {
+            renderer.handleEvent(*ev);
             if (ev->is<sf::Event::Closed>()) running = false;
         }
 
-        simulation.updateVehicles(SIM_DT);
-        simulation.updateTrafficLights(SIM_DT);
+        auto nowFrame = std::chrono::high_resolution_clock::now();
+        float dt = std::chrono::duration<float>(nowFrame - tLastFrame).count();
+        tLastFrame = nowFrame;
+        dt = std::clamp(dt, 0.001f, 0.05f);
+
+        if (dt > 0.0001f) {
+            float inst = 1.f / dt;
+            fpsDisplay = fpsDisplay * 0.88f + inst * 0.12f;
+        }
+
+        simulation.updateTrafficLights(dt);
+        simulation.updateVehicles(dt);
         simulation.detectCollisions();
 
         renderer.clear();
-        renderer.render(simulation);
+        renderer.render(simulation, fpsDisplay, static_cast<int>(simulation.getVehicles().size()));
         renderer.display();
         ++frames;
 
-        auto now  = std::chrono::high_resolution_clock::now();
+        auto now = std::chrono::high_resolution_clock::now();
         long msEl = std::chrono::duration_cast<std::chrono::milliseconds>(now - tLastStat).count();
         if (msEl >= 2000) {
             long totalMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - tStart).count();

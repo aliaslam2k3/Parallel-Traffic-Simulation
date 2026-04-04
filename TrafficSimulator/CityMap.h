@@ -7,6 +7,8 @@
 #ifndef CITYMAP_H
 #define CITYMAP_H
 
+#include <cstdint>
+
 namespace TrafficSim {
 
 namespace CityMap {
@@ -80,6 +82,26 @@ inline BlockType getBlockType(int bx, int by, int numBlocksX, int numBlocksY) {
         return BlockType::BUILDING_INDUSTRIAL;
 
     return BlockType::BUILDING_RESIDENTIAL;
+}
+
+/// Stable hash for block (bx, by) — deterministic façade / tower layout in renderer.
+inline std::uint32_t blockHash(int bx, int by) {
+    std::uint32_t h = static_cast<std::uint32_t>(bx) * 2654435761u ^ static_cast<std::uint32_t>(by) * 2246822519u;
+    h ^= h >> 16;
+    h *= 0x85ebca6bu;
+    h ^= h >> 13;
+    h *= 0xc2b2ae35u;
+    h ^= h >> 16;
+    return h;
+}
+
+/// Extra entropy for sub-building index / floor.
+inline std::uint32_t blockHashMix(std::uint32_t h, int salt) {
+    std::uint32_t x = h ^ static_cast<std::uint32_t>(salt) * 0x9E3779B9u;
+    x ^= x >> 16;
+    x *= 0x7feb352du;
+    x ^= x >> 15;
+    return x;
 }
 
 } // namespace CityMap

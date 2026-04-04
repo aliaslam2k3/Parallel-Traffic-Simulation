@@ -1,7 +1,7 @@
 /**
  * TrafficLight.h
- * Represents a traffic light at an intersection.
- * Alternates between red and green states.
+ * Full three-aspect signal (red / yellow / green) with configurable phase times.
+ * Optional adaptive scaling of green time based on nearby traffic density.
  */
 
 #ifndef TRAFFICLIGHT_H
@@ -9,30 +9,47 @@
 
 namespace TrafficSim {
 
-// Traffic light state
 enum class LightState {
-    RED,
-    GREEN
+    GREEN,
+    YELLOW,
+    RED
 };
 
 class TrafficLight {
 public:
-    TrafficLight(int gridX, int gridY, float cycleTime = 5.0f);
+    TrafficLight(int gridX, int gridY,
+                 float greenTime = 10.f,
+                 float yellowTime = 2.5f,
+                 float redTime = 12.f);
 
-    // Getters
     int getGridX() const { return m_gridX; }
     int getGridY() const { return m_gridY; }
     LightState getState() const { return m_state; }
 
-    // Update light state based on timer
-    void update(float dt = 1.0f);
+    /// 0 = green, 1 = yellow, 2 = red (for HUD / debug)
+    int getStateIndex() const;
+
+    void update(float dt);
+
+    /// Scale green duration by factor in [0.5, 1.5] based on congestion (adaptive signals).
+    void setAdaptiveGreenScale(float scale);
+
+    /// For MPI: read phase timer after rank 0 updates.
+    float getTimer() const { return m_timer; }
+
+    /// For MPI: overwrite state from broadcast (keeps all ranks in sync).
+    void assignSyncedState(LightState state, float timer);
 
 private:
     int m_gridX;
     int m_gridY;
-    LightState m_state;
-    float m_timer;
-    float m_cycleTime;  // Time to switch between red and green
+    LightState m_state = LightState::GREEN;
+    float m_timer = 0.f;
+
+    float m_greenTime;
+    float m_yellowTime;
+    float m_redTime;
+    float m_adaptiveScale = 1.f;
 };
 
 } // namespace TrafficSim
